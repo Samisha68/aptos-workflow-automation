@@ -1,11 +1,12 @@
 // src/hooks/useWallet.ts
 import { useState, useEffect } from 'react';
 import { WalletAccount } from '@/lib/types';
+import { AptosAccount } from 'aptos';
 
 // Ensure TypeScript knows about the window.aptos property
 declare global {
   interface Window {
-    aptos?: any;
+    
     petra?: any; // Add support for the newer API as well
   }
 }
