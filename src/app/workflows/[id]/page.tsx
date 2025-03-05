@@ -8,16 +8,19 @@ import { useWorkflows } from '@/hooks/useWorkflows';
 import Button from '@/components/ui/Button';
 import Link from 'next/link';
 import { Workflow, WorkflowStep } from '@/lib/types';
+import WalletConnect from '@/components/WalletConnect';
+import AIWorkflowOptimizer from '@/components/AIworkflowOptimizer';
 
 export default function WorkflowDetailsPage({ params }: { params: { id: string } }) {
   const router = useRouter();
-  const { account, isConnected, connect } = useWallet();
+  const { account, isConnected } = useWallet();
   const { 
     workflows, 
     loading, 
     error, 
     executeWorkflow,
-    addWorkflowStep
+    addWorkflowStep,
+    fetchWorkflows
   } = useWorkflows(account?.address);
   
   const [workflow, setWorkflow] = useState<Workflow | null>(null);
@@ -129,23 +132,16 @@ export default function WorkflowDetailsPage({ params }: { params: { id: string }
     setNewStep(prev => ({ ...prev, args }));
   };
 
-  // If not connected, show connection prompt
+  // Handle successful wallet connection
+  const handleWalletConnectSuccess = () => {
+    if (account?.address) {
+      fetchWorkflows(account.address);
+    }
+  };
+
+  // If not connected, show wallet connection UI
   if (!isConnected) {
-    return (
-      <div className="flex flex-col items-center justify-center min-h-[60vh]">
-        <h1 className="text-2xl font-bold mb-4">Connect Wallet</h1>
-        <p className="text-gray-600 mb-6 text-center max-w-md">
-          Connect your Aptos wallet to view and manage your workflows
-        </p>
-        <Button 
-          variant="primary" 
-          onClick={connect}
-          isLoading={loading}
-        >
-          Connect Wallet
-        </Button>
-      </div>
-    );
+    return <WalletConnect onSuccess={handleWalletConnectSuccess} />;
   }
 
   // If workflow not found or still loading
@@ -379,6 +375,23 @@ export default function WorkflowDetailsPage({ params }: { params: { id: string }
           </div>
         )}
       </div>
+      
+      {/* AI Workflow Optimizer Component - NEW ADDITION */}
+      {workflow && (
+        <AIWorkflowOptimizer
+          workflow={workflow}
+          onApplyOptimizations={(optimizedSteps) => {
+            // Update the workflow with optimized steps
+            setWorkflow(prev => {
+              if (!prev) return null;
+              return {
+                ...prev,
+                steps: optimizedSteps
+              };
+            });
+          }}
+        />
+      )}
     </div>
   );
 }

@@ -2,134 +2,162 @@
 import { useState, useEffect } from 'react';
 import { WalletAccount } from '@/lib/types';
 
+// Ensure TypeScript knows about the window.aptos property
+declare global {
+  interface Window {
+    aptos?: any;
+    petra?: any; // Add support for the newer API as well
+  }
+}
+
 export const useWallet = () => {
   const [account, setAccount] = useState<WalletAccount | null>(null);
   const [isConnected, setIsConnected] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Add state to track if we're in browser environment
+  const [isBrowser, setIsBrowser] = useState(false);
+
+  // Set isBrowser to true once component mounts
+  useEffect(() => {
+    setIsBrowser(true);
+  }, []);
+
+  // Check if Petra wallet is available
+  const isPetraInstalled = (): boolean => {
+    if (!isBrowser) return false; // Short-circuit if we're on server
+    return typeof window !== 'undefined' && (window.aptos !== undefined || window.petra !== undefined);
+  };
 
   // Connect to wallet
-  const connect = async () => {
-    console.log("Connect function called");
+  const connect = async (): Promise<WalletAccount | null> => {
     setIsConnecting(true);
     setError(null);
     
     try {
-      console.log("Checking for wallet availability");
-      console.log("Window type:", typeof window);
-      
       // Check if Petra wallet is available
-      if (typeof window !== 'undefined' && window.aptos) {
-        console.log("Aptos found in window object");
-        
-        try {
-          console.log("Calling wallet.connect() with proper error handling");
-          // Use explicit connect options to prevent API errors
-          const response = await window.aptos.connect({
-            onlyIfTrusted: false, // This forces the approval dialog to show
-            networkName: "Devnet" // Explicitly specify network
-          });
-          
-          console.log("Wallet response:", response);
-          
-          if (!response || !response.address) {
-            throw new Error('Invalid response from wallet');
-          }
-          
-          const walletAccount: WalletAccount = {
-            address: response.address,
-            publicKey: response.publicKey || '' // Handle case where publicKey might be missing
-          };
-          
-          console.log("Setting account:", walletAccount);
-          setAccount(walletAccount);
-          setIsConnected(true);
-          return walletAccount;
-        } catch (specificErr: any) {
-          console.error("Specific Petra error:", specificErr);
-          throw specificErr; // Re-throw to be caught by outer catch
-        }
-      } else {
-        // Fall back to mock connection if wallet isn't available
-        console.log("Wallet not found, using mock connection");
-        const mockAccount: WalletAccount = {
-          address: "0x123456789abcdef123456789abcdef123456789abcdef123456789abcdef1234",
-          publicKey: "0xpublic_key_example"
-        };
-        
-        console.log("Setting mock account:", mockAccount);
-        setAccount(mockAccount);
-        setIsConnected(true);
-        return mockAccount;
+      if (!isPetraInstalled()) {
+        throw new Error('Petra wallet is not installed. Please install the Petra extension first.');
       }
-    } catch (err: any) {
-      console.error("Connection error:", err);
-      setError(err.message || 'Failed to connect wallet');
       
-      // Fall back to mock connection if there's an error
-      console.log("Error connecting, using mock connection");
-      const mockAccount: WalletAccount = {
-        address: "0x123456789abcdef123456789abcdef123456789abcdef123456789abcdef1234",
-        publicKey: "0xpublic_key_example"
+      // Try to connect to the wallet using the newer API if available
+      const walletAPI = window.petra || window.aptos;
+      if (!walletAPI) {
+        throw new Error('Petra wallet is not available.');
+      }
+      
+      // Try to connect to the wallet
+      const response = await walletAPI.connect();
+      
+      if (!response || !response.address) {
+        throw new Error('Failed to connect to wallet. Please try again.');
+      }
+      
+      const walletAccount: WalletAccount = {
+        address: response.address,
+        publicKey: response.publicKey || ''
       };
       
-      console.log("Setting mock account:", mockAccount);
-      setAccount(mockAccount);
+      setAccount(walletAccount);
       setIsConnected(true);
-      return mockAccount;
+      return walletAccount;
+    } catch (err: any) {
+      console.error("Wallet connection error:", err);
+      
+      // Set a user-friendly error message
+      if (err.message?.includes('User rejected the request')) {
+        setError('Connection request was rejected. Please approve the connection in your Petra wallet.');
+      } else {
+        setError(err.message || 'Failed to connect wallet');
+      }
+      
+      return null;
     } finally {
       setIsConnecting(false);
     }
   };
 
   // Disconnect from wallet
-  const disconnect = async () => {
-    console.log("Disconnect function called");
+  const disconnect = async (): Promise<void> => {
     try {
-      if (typeof window !== 'undefined' && window.aptos) {
-        console.log("Calling wallet.disconnect()");
-        await window.aptos.disconnect();
+      if (isPetraInstalled()) {
+        const walletAPI = window.petra || window.aptos;
+        if (walletAPI) {
+          await walletAPI.disconnect();
+        }
       }
     } catch (err) {
       console.error("Error disconnecting:", err);
     } finally {
-      console.log("Clearing account and connection state");
       setAccount(null);
       setIsConnected(false);
     }
   };
 
-  // Auto-connect on startup
-  useEffect(() => {
-    console.log("useWallet effect triggered for auto-connect");
-    const autoConnect = async () => {
-      if (typeof window !== 'undefined' && window.aptos) {
-        try {
-          // Check if already connected
-          console.log("Checking if already connected");
-          const isConnected = await window.aptos.isConnected();
-          console.log("isConnected status:", isConnected);
-          
-          if (isConnected) {
-            console.log("Already connected, calling connect()");
-            await connect();
-          }
-        } catch (err) {
-          console.error("Auto-connect error:", err);
+  // Check current connection status
+  const checkConnection = async (): Promise<boolean> => {
+    if (!isPetraInstalled()) {
+      return false;
+    }
+    
+    try {
+      const walletAPI = window.petra || window.aptos;
+      if (!walletAPI) return false;
+      
+      // Check if already connected
+      const connected = await walletAPI.isConnected();
+      
+      if (connected) {
+        // Get current account
+        const acct = await walletAPI.account();
+        
+        if (acct && acct.address) {
+          setAccount({
+            address: acct.address,
+            publicKey: acct.publicKey || ''
+          });
+          setIsConnected(true);
+          return true;
         }
-      } else {
-        console.log("Wallet not available for auto-connect");
       }
-    };
+      
+      return false;
+    } catch (err) {
+      console.error("Error checking connection:", err);
+      return false;
+    }
+  };
 
-    autoConnect();
-  }, []);
-
-  // Log state changes for debugging
+  // Auto-connect on startup - but only in the browser
   useEffect(() => {
-    console.log("Account state changed:", account);
-    console.log("isConnected state:", isConnected);
-  }, [account, isConnected]);
+    if (isBrowser) {
+      const autoConnect = async () => {
+        await checkConnection();
+      };
+  
+      autoConnect();
+      
+      // Set up account change listener
+      if (isPetraInstalled()) {
+        const walletAPI = window.petra || window.aptos;
+        if (walletAPI && walletAPI.onAccountChange) {
+          walletAPI.onAccountChange((newAccount: any) => {
+            if (newAccount && newAccount.address) {
+              setAccount({
+                address: newAccount.address,
+                publicKey: newAccount.publicKey || ''
+              });
+              setIsConnected(true);
+            } else {
+              setAccount(null);
+              setIsConnected(false);
+            }
+          });
+        }
+      }
+    }
+  }, [isBrowser]); // Only run when isBrowser changes
+  
 
   return {
     account,
@@ -137,6 +165,7 @@ export const useWallet = () => {
     isConnecting,
     error,
     connect,
-    disconnect
+    disconnect,
+    isPetraInstalled: isPetraInstalled()
   };
 };

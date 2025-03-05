@@ -7,10 +7,11 @@ import Button from '@/components/ui/Button';
 import { useWallet } from '@/hooks/useWallet';
 import { useWorkflows } from '@/hooks/useWorkflows';
 import Link from 'next/link';
+import WalletConnect from '@/components/WalletConnect';
 
 export default function WorkflowsPage() {
   const router = useRouter();
-  const { account, isConnected, connect, isConnecting } = useWallet();
+  const { account, isConnected } = useWallet();
   const { 
     workflows, 
     loading, 
@@ -28,14 +29,6 @@ export default function WorkflowsPage() {
     error: null,
     success: null
   });
-
-  // Handle wallet connection
-  const handleConnect = async () => {
-    const result = await connect();
-    if (result && result.address) {
-      fetchWorkflows(result.address);
-    }
-  };
 
   // Handle workflow execution
   const handleExecute = async (workflowId: string) => {
@@ -73,23 +66,16 @@ export default function WorkflowsPage() {
     }
   };
 
-  // If not connected, show connection prompt
+  // Load workflows after successful connection
+  const handleWalletConnectSuccess = () => {
+    if (account?.address) {
+      fetchWorkflows(account.address);
+    }
+  };
+
+  // If not connected, show the improved wallet connection component
   if (!isConnected) {
-    return (
-      <div className="flex flex-col items-center justify-center min-h-[60vh]">
-        <h1 className="text-2xl font-bold mb-4">Connect Wallet</h1>
-        <p className="text-gray-600 mb-6 text-center max-w-md">
-          Connect your Aptos wallet to view and manage your workflows
-        </p>
-        <Button 
-          variant="primary" 
-          onClick={handleConnect}
-          isLoading={isConnecting}
-        >
-          Connect Wallet
-        </Button>
-      </div>
-    );
+    return <WalletConnect onSuccess={handleWalletConnectSuccess} />;
   }
 
   return (

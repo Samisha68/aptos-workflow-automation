@@ -109,12 +109,40 @@ export const WORKFLOW_TEMPLATES = [
   }
 ];
 
+// Helper function to load workflows from localStorage
+const loadWorkflowsFromStorage = (address: string): Workflow[] => {
+  if (typeof window === 'undefined') return MOCK_WORKFLOWS;
+  
+  try {
+    const storedWorkflows = localStorage.getItem(`workflows_${address}`);
+    if (storedWorkflows) {
+      return JSON.parse(storedWorkflows);
+    }
+  } catch (error) {
+    console.error("Error loading workflows from storage:", error);
+  }
+  
+  return MOCK_WORKFLOWS;
+};
+
+// Helper function to save workflows to localStorage
+const saveWorkflowsToStorage = (address: string, workflows: Workflow[]) => {
+  if (typeof window === 'undefined') return;
+  
+  try {
+    localStorage.setItem(`workflows_${address}`, JSON.stringify(workflows));
+  } catch (error) {
+    console.error("Error saving workflows to storage:", error);
+  }
+};
+
 export const useWorkflows = (walletAddress?: string) => {
   const [workflows, setWorkflows] = useState<Workflow[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [initialized, setInitialized] = useState(false);
 
-  // Fetch workflows
+  // Fetch workflows with localStorage support
   const fetchWorkflows = async (address: string) => {
     if (!address) return;
     
@@ -122,10 +150,10 @@ export const useWorkflows = (walletAddress?: string) => {
     setError(null);
     
     try {
-      // In a real implementation, this would query the blockchain
-      // For the hackathon, we're using mock data
-      await new Promise(resolve => setTimeout(resolve, 1000)); // Simulate loading
-      setWorkflows(MOCK_WORKFLOWS);
+      // Load from localStorage instead of mock data
+      const storedWorkflows = loadWorkflowsFromStorage(address);
+      setWorkflows(storedWorkflows);
+      setInitialized(true);
     } catch (err: any) {
       console.error("Error fetching workflows:", err);
       setError(err.message || "Failed to fetch workflows");
@@ -133,6 +161,13 @@ export const useWorkflows = (walletAddress?: string) => {
       setLoading(false);
     }
   };
+
+  // Update localStorage whenever workflows change
+  useEffect(() => {
+    if (initialized && walletAddress) {
+      saveWorkflowsToStorage(walletAddress, workflows);
+    }
+  }, [workflows, walletAddress, initialized]);
 
   // Create a new workflow
   const createWorkflow = async (
@@ -146,7 +181,9 @@ export const useWorkflows = (walletAddress?: string) => {
     setError(null);
     
     try {
-      // Prepare transaction payload
+      console.log("Creating workflow:", { address, name, description });
+      
+      // Prepare transaction payload (for real implementation)
       const payload = {
         type: "entry_function_payload",
         function: `${address}::workflow::create_workflow`,
@@ -155,11 +192,15 @@ export const useWorkflows = (walletAddress?: string) => {
       };
       
       // Submit transaction (simulated)
-      await submitTransaction(address, payload);
+      const txResult = await submitTransaction(address, payload);
+      console.log("Transaction result:", txResult);
+      
+      // Generate a unique ID
+      const newId = `custom-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
       
       // Create a new workflow object
       const newWorkflow: Workflow = {
-        id: `${workflows.length + 1}`,
+        id: newId,
         name,
         description,
         steps: [],
@@ -168,8 +209,15 @@ export const useWorkflows = (walletAddress?: string) => {
         lastExecuted: 0
       };
       
-      // Update state
-      setWorkflows(prev => [...prev, newWorkflow]);
+      // Update state - make sure to create a new array to trigger re-render
+      setWorkflows(prevWorkflows => {
+        const updatedWorkflows = [...prevWorkflows, newWorkflow];
+        // Save immediately to localStorage as well
+        if (address) saveWorkflowsToStorage(address, updatedWorkflows);
+        return updatedWorkflows;
+      });
+      
+      console.log("Workflow created and added to state:", newWorkflow);
       
       return newWorkflow;
     } catch (err: any) {
@@ -220,17 +268,20 @@ export const useWorkflows = (walletAddress?: string) => {
       // Create new step with ID
       const newStep: WorkflowStep = {
         ...step,
-        id: `${workflowId}-${workflow.steps.length + 1}`
+        id: `${workflowId}-${workflow.steps.length + 1}-${Date.now()}`
       };
       
       // Update state
-      setWorkflows(prev => 
-        prev.map(w => 
+      setWorkflows(prev => {
+        const updated = prev.map(w => 
           w.id === workflowId 
             ? { ...w, steps: [...w.steps, newStep] } 
             : w
-        )
-      );
+        );
+        // Save immediately to localStorage
+        saveWorkflowsToStorage(address, updated);
+        return updated;
+      });
       
       return true;
     } catch (err: any) {
@@ -271,13 +322,16 @@ export const useWorkflows = (walletAddress?: string) => {
       await submitTransaction(address, payload);
       
       // Update state
-      setWorkflows(prev => 
-        prev.map(w => 
+      setWorkflows(prev => {
+        const updated = prev.map(w => 
           w.id === workflowId 
             ? { ...w, lastExecuted: Date.now() } 
             : w
-        )
-      );
+        );
+        // Save immediately to localStorage
+        saveWorkflowsToStorage(address, updated);
+        return updated;
+      });
       
       return true;
     } catch (err: any) {
